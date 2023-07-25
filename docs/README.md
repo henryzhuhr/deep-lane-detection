@@ -60,7 +60,7 @@ pip3 install -r requirements.txt
 <!-- 作者提供了[分割工具](https://github.com/XingangPan/seg_label_generate.git)
 项目实现 [PytorchAutoDrive](https://github.com/voldemortX/pytorch-auto-drive) -->
 
-CULane 数据集处理和制作参考[CULane文档](./docs/dataset-culane.md)
+CULane 数据集处理和制作参考[CULane文档](./dataset-culane.md)
 
 
 无论是使用 **CULane 数据集**还是**自制数据集**，都需要设置环境变量 `$CULANEROOT`
@@ -243,7 +243,7 @@ export PATH=$PATH:$TENSORRT_HOME/bin
 
 
 
-使用官方提供的转换工具进行转换，如果 TensorRT 环境配置正确，将 `**-INT32.onnx` 转化为 `**-INT32.engine`。转换过程中可能出现的bug以及解决方案记录在["Tensor RT Engine 转换过程中的问题"](#TensorRT-Engine-转换过程中的问题)中，这里提供一个[输出细节参考](./docs/onnx2engine.md)
+使用官方提供的转换工具进行转换，如果 TensorRT 环境配置正确，将 `**-INT32.onnx` 转化为 `**-INT32.engine`。转换过程中可能出现的bug以及解决方案记录在["Tensor RT Engine 转换过程中的问题"](#TensorRT-Engine-转换过程中的问题)中，这里提供一个[输出细节参考](./onnx2engine.md)
 ```shell
 python3 export.py configs/culane.py
 trtexec --verbose --fp16 \
