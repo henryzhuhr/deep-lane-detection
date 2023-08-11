@@ -28,11 +28,12 @@ def main():
                                # crop_h = 0                 # 如果不裁切，可以改成 0
 
     img = cv2.resize(frame, (img_w, img_h))
+    # img=cv2.flip(img,2,dst=None) # 水平翻转
 
     add_h = img_h - crop_h
     crop_img = img[add_h : img_h, :, :] # 裁切下半部分
 
-    infer_result: InferResult = model_infer.infer(crop_img)
+    infer_result: InferResult = model_infer.infer(crop_img, False)
 
     # 裁切后 y 坐标需要加上偏移量
     for i in range(infer_result.lanes_y_coords.shape[0]):
@@ -46,15 +47,16 @@ def main():
     lanes_x_coords = infer_result.lanes_x_coords             # [4, 18]  4 个车道线的 x 坐标
     lanes_x_coords_kl = infer_result.lanes_x_coords_kl       # [4, 18]  卡尔曼滤波后 4 个车道线的 x 坐标
     lane_center_x_coords = infer_result.lane_center_x_coords # [18]     中心车道线的 x 坐标
-    forward_direct = infer_result.forward_direct             # [2, 2]   实际前进方向
+    forwarddirect = infer_result.forward_direct              # [2, 2]   实际前进方向
     predict_direct = infer_result.predict_direct             # [2, 2]   预测前进方向
-    slope = infer_result.slope                               # 预测方向的斜率
-    offset_distance = infer_result.offset_distance           # 偏移距离
+    y_offset = infer_result.y_offset
+    z_offset = infer_result.z_offset
 
-    if False:                                           # 如果不需要绘制，可以改成 False
+    if True:                                            # 如果不需要绘制，可以改成 False
         cv2.rectangle(img, (0, add_h), (img_w, img_h), (0, 255, 0), 2)
         img = model_infer.mark_result(img, infer_result)
-    if True:
+        
+    if False:
         right_lane = [[int(x), int(y)] for x, y in zip(lanes_x_coords[2], lane_y_coords) if x != 0]
         if len(right_lane) > 0:
             top_point = right_lane[len(right_lane) - 1] # 右车道线最上面的的点
@@ -127,7 +129,7 @@ def main():
             for i, x, y in intersect_pts:
                 _, _, line_p = linear_equations[i]
                 x_1, y_1, x_2, y_2 = line_p
-                
+
                 cv2.circle(sub_img_show, (int(x), int(y)), 10, (0, 0, 255), -1)
                 cv2.line(sub_img_show, (x_1, y_1), (x_2, y_2), (0, 0, 255), 2)
 
@@ -162,7 +164,7 @@ def main():
 
     os.makedirs("tmps", exist_ok=True)
     cv2.imwrite("tmps/infer-onnx.jpg", img)
-    cv2.imwrite("tmps/infer-onnx-sub.jpg", sub_img_show)
+    # cv2.imwrite("tmps/infer-onnx-sub.jpg", sub_img_show)
 
 
 if __name__ == "__main__":
