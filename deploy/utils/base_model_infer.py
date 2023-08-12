@@ -1,3 +1,4 @@
+from typing import Tuple
 import cv2
 import numpy as np
 from .constants import (
@@ -6,11 +7,7 @@ from .constants import (
     ROW_ANCHOR,
     COLOR_LIST,
     COLOR_MAP,
-)
-
-from .process import (
-    img2tensor,
-    phrasing_output,
+    CAR_WIDTH_RATIO,
 )
 
 from .kalman import LaneKalmanFiter
@@ -65,17 +62,19 @@ class BaseModelInfer:
     """
     def __init__(
         self,
+        car_width_ratio: float = CAR_WIDTH_RATIO, # 车宽度 (占宽度百分比)
         griding_num=GRIDING_NUM,
         cls_num_per_lane=CLS_NUM_PER_LANE,
         row_anchor=ROW_ANCHOR,
-        klf_id=[                           # 真正执行卡尔曼滤波的车道线 id
-            0,                             # 1 左左车道线
-            1,                             # 2 左车道线
-            2,                             # 3 右车道线
-            3,                             # 4 右右车道线
+        klf_id=[                                            # 真正执行卡尔曼滤波的车道线 id
+            0,                                              # 1 左左车道线
+            1,                                              # 2 左车道线
+            2,                                              # 3 右车道线
+            3,                                              # 4 右右车道线
         ]
     ) -> None:
 
+        self.car_width_ratio = car_width_ratio # 车宽度 (占宽度百分比)
         self.griding_num = griding_num
         self.cls_num_per_lane = cls_num_per_lane
         self.row_anchor = row_anchor
@@ -97,7 +96,7 @@ class BaseModelInfer:
         """
         raise NotImplementedError
 
-    def infer(self, img: np.ndarray, is_kalman=True):
+    def infer(self, img: np.ndarray, is_kalman=False):
         """
         ### Args:
         - `img`: `np.ndarray`(`np.uint8`), 形状 `(H, W, C)`, 数值范围: `[0, 255]`
@@ -112,21 +111,14 @@ class BaseModelInfer:
         model_out = self.infer_model(input)
 
         # 解析模型输出
-        (
-            lanes_x_coords,        # np.int32 [4,18] 4 个车道线 x 坐标
-            lane_y_coords,         # np.int32 [18]   所有车道线共用一组 y 坐标
-        ) = phrasing_output(
-            model_out,
-            img_h,
-            img_w,
-            self.griding_num,
-            self.cls_num_per_lane,
-            self.row_anchor,
-        )
         """
         (720, 1280, 3)
         [716 691 666 644 619 594 569 546 521 496 471 449 424 399 374 351 326 301]
         """
+        (
+            lanes_x_coords, # np.int32 [4,18] 4 个车道线 x 坐标
+            lane_y_coords,  # np.int32 [18]   所有车道线共用一组 y 坐标
+        ) = self.phrasing_output(model_out, img_h, img_w, self.griding_num, self.cls_num_per_lane, self.row_anchor)
 
         # 拟合左右车道线并且重新采样
         (
@@ -137,8 +129,11 @@ class BaseModelInfer:
             lanes_x_coords[2],
             lane_y_coords,
         )
-        lanes_x_coords[1] = left__lane_x
+                                         # lanes_x_coords[1] = left__lane_x
         lanes_x_coords[2] = right_lane_x
+
+        lanes_x_coords[1] = np.zeros_like(left__lane_x, dtype=np.int32)
+        # lanes_x_coords[2] = np.zeros_like(right_lane_x, dtype=np.int32)
 
         lanes_x_coords_kl = np.zeros_like(lanes_x_coords, dtype=np.int32)  # [4,18]
 
@@ -149,7 +144,7 @@ class BaseModelInfer:
                 lanes_x_coords_kl[i] = self.lanes_klf[i].update(lanes_x_coords[i], lane_y_coords)
 
         # 计算中心线的 x 坐标
-        lane_center_x_coords = BaseModelInfer.compute_center_lane(
+        lane_center_x_coords = self.compute_center_lane(
             lanes_x_coords_kl[1] if is_kalman else lanes_x_coords[1],
             lanes_x_coords_kl[2] if is_kalman else lanes_x_coords[2],
             lane_y_coords,
@@ -188,6 +183,7 @@ class BaseModelInfer:
 
         # 实际的前进方向
         # TODO ，需要实际标定，目前使用图像中心线作为前进方向
+        # w:1280  [148 (594) 1040]
         forward_direct = np.array(((img_w // 2, img_h), (img_w // 2, img_h / 5)), dtype=np.int32)
         # 预测的前进方向
         predict_direct = np.array(((x0, y0), (x1, y1)), dtype=np.int32)
@@ -218,6 +214,56 @@ class BaseModelInfer:
         return infer_result
 
     @staticmethod
+    def phrasing_output(
+        model_out: np.ndarray,
+        img_h: int,
+        img_w: int,
+        griding_num: int,
+        cls_num_per_lane: int,
+        row_anchor: list,
+    ):
+        """
+        解析 UFLD 网络输出
+        - `model_out`: shape `[201, 18, 4]`
+
+        ### Returns: 返回坐标从底部到顶部，根据 y 坐标和 x 坐标分别排序的车道线坐标
+        - `lanes_x_coords`: `np.ndarray([4, 18], np.int32)` 四个车道线的 x 坐标
+        - `lanes_y_coords`: `np.ndarray([18], np.int32)`    y 坐标
+        """
+        col_sample = np.linspace(0, 800 - 1, griding_num)
+        col_sample_w = col_sample[1] - col_sample[0]
+
+        # flip_updown
+        model_out = model_out[:, ::-1, :]
+
+        # relative localization -> absolute position
+        prob = softmax(model_out[:-1, :, :], axis=0)
+        idx = np.arange(griding_num) + 1
+        idx = idx.reshape(-1, 1, 1)
+        loc = np.sum(prob * idx, axis=0)
+        model_out = np.argmax(model_out, axis=0)
+        loc[model_out == griding_num] = 0
+        model_out = loc # shape [18,4]
+
+        lanes_x_coords = np.zeros([model_out.shape[1], model_out.shape[0]], dtype=np.int32) # [18, 4]
+        lanes_y_coords = np.zeros(model_out.shape[0], dtype=np.int32)                       # [18]
+
+        for i in range(model_out.shape[1]):
+            if np.sum(model_out[:, i] != 0) > 2:
+                for k in range(model_out.shape[0]):
+                    y = int(img_h / 288 * (row_anchor[cls_num_per_lane - 1 - k])) - 1
+                    lanes_y_coords[k] = y
+                    if model_out[k, i] > 0:
+
+                        x = int(model_out[k, i] * col_sample_w * img_w / 800) - 1
+
+                        # i: lane_id [0,3]
+                        # k: row_id  [0,17]
+                        lanes_x_coords[i, k] = x
+
+        return (lanes_x_coords, lanes_y_coords)
+
+    @staticmethod
     def fit_and_resample_lanes(
         lx_s: np.ndarray,       # np.int32 [18] left__lane_x_coords
         rx_s: np.ndarray,       # np.int32 [18] right_lane_x_coords
@@ -226,6 +272,7 @@ class BaseModelInfer:
     ):
         """
         返回左右车道线的拟合后重新采样的点: `[resample_lx_s, resample_rx_s ]`
+        点不够时，返回 全 0 ，表明该检测结果不可靠
         """
 
         # 左右车道线 提取非 0 的点的下标
@@ -271,7 +318,10 @@ class BaseModelInfer:
         return lane_center_x_coords
 
     @staticmethod
-    def compute_slope(lane_x_coords, lane_y_coords):
+    def compute_slope(
+        lane_x_coords: np.ndarray, # np.int32 [18] lane_center_x_coords
+        lane_y_coords: np.ndarray, # np.int32 [18] lane_y_coords
+    ):
         """
         计算预测方向的斜率
 
@@ -364,11 +414,11 @@ class BaseModelInfer:
                 x = int(lane_x_coords[i])
                 y = int(lane_y_coords[i])
                 if x != 0:
-                    cv2.circle(img, (x, y), 5, color,thickness)
+                    cv2.circle(img, (x, y), 5, color, thickness)
             return img
 
         for i in range(lane_num):
-            img = mark_lane(img, lanes_x_coords[i], lane_y_coords, COLOR_LIST[i],1)
+            img = mark_lane(img, lanes_x_coords[i], lane_y_coords, COLOR_LIST[i], 1)
             img = mark_lane(img, lanes_x_coords_kl[i], lane_y_coords, COLOR_LIST[i + lane_num])
 
         # =============
@@ -457,3 +507,33 @@ class BaseModelInfer:
                 thickness=thickness,
             )
         return img
+
+
+class NormalizeValue:
+    mean = [0.485, 0.456, 0.406]
+    std = [0.229, 0.224, 0.225]
+
+
+def img2tensor(img: np.ndarray, size: Tuple[int, int] = (800, 288)):
+    """
+    Transform the input image to the format that the model needs.
+
+    ## Args:
+    - `img`: `np.ndarray`, shape: `(H, W, C)`, dtype: `np.uint8`, range: `[0, 255]`
+
+    ## Returns:
+    - `img`: `np.ndarray`, shape: `(1, C, H, W)`, dtype: `np.float32`, range: `[0, 1]`
+    """
+
+    img = img / 255.0
+    img = (img - NormalizeValue.mean) / NormalizeValue.std
+    img = np.transpose(img, (2, 0, 1))
+    img = np.expand_dims(img, axis=0)
+    img = img.astype(np.float32)
+    return img
+
+
+def softmax(x, axis=None):
+    x_max = np.amax(x, axis=axis, keepdims=True)
+    exp_x_shifted = np.exp(x - x_max)
+    return exp_x_shifted / np.sum(exp_x_shifted, axis=axis, keepdims=True)

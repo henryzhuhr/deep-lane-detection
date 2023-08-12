@@ -7,13 +7,14 @@ from .logger import ColorStr
 from .constants import (
     GRIDING_NUM,
     CLS_NUM_PER_LANE,
-    ROW_ANCHOR,
+    ROW_ANCHOR,CAR_WIDTH_RATIO,
 )
 
 import tensorrt as trt # Test on TRT 8.2.1
 assert trt.__version__ == "8.2.1", "tensorrt version must be 8.2.1"
 import pycuda.driver as cuda
 import pycuda.autoinit # This is needed for initializing CUDA driver
+
 
 class TensorRTInfer(BaseModelInfer):
     """
@@ -22,18 +23,18 @@ class TensorRTInfer(BaseModelInfer):
     def __init__(
         self,
         weight_file,
+         car_width_ratio: float = CAR_WIDTH_RATIO, # 车宽度 (占宽度百分比)
         griding_num=GRIDING_NUM,
         cls_num_per_lane=CLS_NUM_PER_LANE,
         row_anchor=ROW_ANCHOR,
-        klf_id=[                           # 真正执行卡尔曼滤波的车道线 id
-            0,                             # 0 左左车道线
-            1,                             # 1 左车道线
-            2,                             # 2 右车道线
-            3,                             # 3 右右车道线
+        klf_id=[                            # 真正执行卡尔曼滤波的车道线 id
+            0,                              # 0 左左车道线
+            1,                              # 1 左车道线
+            2,                              # 2 右车道线
+            3,                              # 3 右右车道线
         ]
     ) -> None:
-        super().__init__(griding_num, cls_num_per_lane, row_anchor, klf_id)
-        
+        super().__init__(car_width_ratio, griding_num, cls_num_per_lane, row_anchor, klf_id)
 
         # Load TRT engine
         self.logger = trt.Logger(trt.Logger.ERROR)
@@ -92,8 +93,8 @@ class TensorRTInfer(BaseModelInfer):
         assert len(self.inputs) > 0
         assert len(self.outputs) > 0
         assert len(self.allocations) > 0
-        
-    def infer_model(self, input: np.ndarray)->np.ndarray:
+
+    def infer_model(self, input: np.ndarray) -> np.ndarray:
         """
         # 执行模型推理，对 TensorRT 模型进行推理的封装
         ## Args:
@@ -110,7 +111,7 @@ class TensorRTInfer(BaseModelInfer):
         :return: A nested list for each image in the batch and each detection in the list.
         """
 
-        batch=input
+        batch = input
 
         # Prepare the output data.
         outputs = []

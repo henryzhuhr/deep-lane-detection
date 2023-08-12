@@ -3,13 +3,14 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from .base_model_infer import BaseModelInfer,InferResult
+from .base_model_infer import BaseModelInfer, InferResult
 
 from .logger import ColorStr
 from .constants import (
     GRIDING_NUM,
     CLS_NUM_PER_LANE,
     ROW_ANCHOR,
+    CAR_WIDTH_RATIO,
 )
 
 
@@ -17,17 +18,18 @@ class ONNXInfer(BaseModelInfer):
     def __init__(
         self,
         onnx_file,
+        car_width_ratio: float = CAR_WIDTH_RATIO, # 车宽度 (占宽度百分比)
         griding_num=GRIDING_NUM,
         cls_num_per_lane=CLS_NUM_PER_LANE,
         row_anchor=ROW_ANCHOR,
-        klf_id=[                           # 真正执行卡尔曼滤波的车道线 id
-            0,                             # 0 左左车道线
-            1,                             # 1 左车道线
-            2,                             # 2 右车道线
-            3,                             # 3 右右车道线
+        klf_id=[                                            # 真正执行卡尔曼滤波的车道线 id
+            0,                                              # 0 左左车道线
+            1,                                              # 1 左车道线
+            2,                                              # 2 右车道线
+            3,                                              # 3 右右车道线
         ]
     ) -> None:
-        super().__init__(griding_num, cls_num_per_lane, row_anchor, klf_id)
+        super().__init__(car_width_ratio, griding_num, cls_num_per_lane, row_anchor, klf_id)
 
         self.ort_session = ort.InferenceSession(
             onnx_file, providers=[
@@ -42,7 +44,7 @@ class ONNXInfer(BaseModelInfer):
 
         binding_output_names = [binding.name for binding in self.ort_session.get_outputs()]
         binding_output_shapes = [binding.shape for binding in self.ort_session.get_outputs()]
-        binding_output_types = [binding.type for binding in self.ort_session.get_outputs()]\
+        binding_output_types = [binding.type for binding in self.ort_session.get_outputs()]
 
         print(ColorStr.info("Parsing ONNX info:"))
         print(ColorStr.info("  - providers:"), self.ort_session.get_providers())
@@ -60,7 +62,7 @@ class ONNXInfer(BaseModelInfer):
         if "output" not in [binding.name for binding in self.ort_session.get_outputs()]:
             raise ValueError("'output' not found in ONNX model, expected one of", binding_output_names)
 
-    def infer_model(self, input: np.ndarray)->np.ndarray:
+    def infer_model(self, input: np.ndarray) -> np.ndarray:
         """
         # 执行模型推理，对 ONNX 模型进行推理的封装
         ## Args:

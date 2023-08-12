@@ -14,7 +14,7 @@ class Args:
 
 
 def main():
-    model_infer = ONNXInfer(Args.weight_file)
+    model_infer = ONNXInfer(Args.weight_file,0.5)
 
     frame = cv2.imread(Args.image_file)
 
