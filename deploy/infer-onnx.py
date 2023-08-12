@@ -5,17 +5,44 @@ import numpy as np
 from utils.onnx_infer import ONNXInfer, InferResult
 
 
-class Args:
-    weight_file = "../weights/train/ufld-final.onnx"
+def color_extraction(image):
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-    video = os.path.expandvars("$HOME/Downloads/IMG_5281.MOV") # 视频文件
+    # range of yellow and white
+    yellow_lower = np.array([20, 125, 125])  # yellow
+    yellow_upper = np.array([35, 255, 255])
+    white_lower = np.array([0, 0, 200])  # white
+    white_upper = np.array([180, 30, 255])
+
+    yellow_mask = cv2.inRange(hsv_image, yellow_lower, yellow_upper)
+    white_mask = cv2.inRange(hsv_image, white_lower, white_upper)
+
+    combined_mask = cv2.bitwise_or(yellow_mask, white_mask)
+
+    processed_image = cv2.bitwise_and(image, image, mask=combined_mask)
+
+    return processed_image
+
+def undistort_image(image, camera_matrix, distortion_coefficients):
+    undistorted_image = cv2.undistort(image, camera_matrix, distortion_coefficients)
+    return undistorted_image
+
+
+class Args:
+    weight_file = "../weights/culane_18.onnx"
+
+    video = "../examples/IMG_5281.MOV"
 
 
 def main():
     model_infer = ONNXInfer(Args.weight_file)
 
-    cap = cv2.VideoCapture(Args.video)
-    skip_frame = 2 # 每隔 skip_frame 帧进行一次推理
+    camera_matrix = np.array([[309.90395107, 0.00000000e+00, 300.39021399], [0.00000000e+00, 302.16360458, 246.21441832], [0.00000000e+00, 0.00000000e+00, 1.00000000e+00]])
+    distortion_coefficients = np.array([-0.32984359,  0.11556734, -0.00545855,  0.00248696, -0.01897801])
+
+    # cap = cv2.VideoCapture(Args.video)
+    cap = cv2.VideoCapture(0)
+    skip_frame = 2  # 每隔 skip_frame 帧进行一次推理
     i = 0
     try:
         while cap.isOpened():
@@ -42,8 +69,11 @@ def main():
             img = cv2.resize(frame, (img_w, img_h))
             
 
-            add_h = img_h - crop_h
+            add_h = img_h - 0
             crop_img = img[add_h : img_h, :, :] # 裁切下半部分
+            img = undistort_image(frame, camera_matrix, distortion_coefficients)
+            img = img[0: img_h, :600, :]  # 裁切下半部分
+            # img = color_extraction(img)
 
             infer_result: InferResult = model_infer.infer(img)
 
@@ -67,6 +97,9 @@ def main():
             if True: # 如果不需要绘制，可以改成 False
                 # cv2.rectangle(img, (0, add_h), (img_w, img_h), (0, 255, 0), 2)
                 img = model_infer.mark_result(img, infer_result)
+
+            # for i in range(lane_y_coords.shape):
+            #     x =
 
             # 推理时间
             infer_time = (time.time() - st) * 1000
