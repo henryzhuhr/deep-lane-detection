@@ -195,9 +195,9 @@ class BaseModelInfer:
         if (left_x0 == 0 and right_x0 == 0):
             y_offset = np.int32(0)
         elif (left_x0 != 0 and right_x0 == 0):
-            y_offset = np.int32(left_x0 - 20)
+            y_offset = np.int32(left_x0 - 40)
         elif (left_x0 == 0 and right_x0 != 0):
-            y_offset = np.int32(right_x0 - 580)
+            y_offset = np.int32(right_x0 - 1160)
         else:
             y_offset = np.int32(predict_direct[0][0] - forward_direct[0][0])
 

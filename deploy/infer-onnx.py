@@ -37,11 +37,13 @@ class Args:
 def main():
     model_infer = ONNXInfer(Args.weight_file)
 
-    camera_matrix = np.array([[309.90395107, 0.00000000e+00, 300.39021399], [0.00000000e+00, 302.16360458, 246.21441832], [0.00000000e+00, 0.00000000e+00, 1.00000000e+00]])
-    distortion_coefficients = np.array([-0.32984359,  0.11556734, -0.00545855,  0.00248696, -0.01897801])
+    camera_matrix = np.array([[654.70620869, 0.00000000e+00, 620.18116133], [0.00000000e+00, 656.66098208, 433.29648979], [0.00000000e+00, 0.00000000e+00, 1.00000000e+00]])
+    distortion_coefficients = np.array([-0.32841624,  0.10118464, 0.00383333,  0.00071582, -0.01392005])
 
     # cap = cv2.VideoCapture(Args.video)
     cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 960)
     skip_frame = 2  # 每隔 skip_frame 帧进行一次推理
     i = 0
     try:
@@ -66,13 +68,15 @@ def main():
             crop_h = int(img_w * 0.36) # 0.36 = 288 / 800
                                        # crop_h = 0  # 如果不裁切，可以改成 0
 
-            img = cv2.resize(frame, (img_w, img_h))
+            img=img[200:, :]
+            # img = cv2.resize(frame, (img_w, img_h))
+
             
 
             add_h = img_h - 0
             crop_img = img[add_h : img_h, :, :] # 裁切下半部分
-            img = undistort_image(frame, camera_matrix, distortion_coefficients)
-            img = img[0: img_h, :600, :]  # 裁切下半部分
+            img = undistort_image(img, camera_matrix, distortion_coefficients)
+            img = img[:, :1200, :]  # 裁切下半部分
             # img = color_extraction(img)
 
             infer_result: InferResult = model_infer.infer(img)
